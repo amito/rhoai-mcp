@@ -1,5 +1,5 @@
 # Makefile for RHOAI MCP Server Container Management
-# Supports both Docker and Podman
+# Podman-first container management (also supports Docker)
 
 # =============================================================================
 # Configuration
@@ -39,10 +39,10 @@ help: ## Show this help message
 # =============================================================================
 
 build: ## Build the container image
-	$(CONTAINER_RUNTIME) build -t $(FULL_IMAGE) .
+	$(CONTAINER_RUNTIME) build -f Containerfile -t $(FULL_IMAGE) .
 
 build-no-cache: ## Build the container image without cache
-	$(CONTAINER_RUNTIME) build --no-cache -t $(FULL_IMAGE) .
+	$(CONTAINER_RUNTIME) build -f Containerfile --no-cache -t $(FULL_IMAGE) .
 
 # =============================================================================
 # Run
@@ -53,35 +53,35 @@ run: run-http ## Default: run with HTTP (SSE) transport
 run-http: ## Run with HTTP (SSE) transport on port $(PORT)
 	$(CONTAINER_RUNTIME) run --rm --name $(CONTAINER_NAME) \
 		-p $(PORT):8000 \
-		-v $(KUBECONFIG):/app/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
-		-e RHOAI_MCP_KUBECONFIG_PATH=/app/kubeconfig/config \
+		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=$(LOG_LEVEL) \
 		$(FULL_IMAGE) --transport sse
 
 run-streamable: ## Run with streamable-http transport
 	$(CONTAINER_RUNTIME) run --rm --name $(CONTAINER_NAME) \
 		-p $(PORT):8000 \
-		-v $(KUBECONFIG):/app/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
-		-e RHOAI_MCP_KUBECONFIG_PATH=/app/kubeconfig/config \
+		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=$(LOG_LEVEL) \
 		$(FULL_IMAGE) --transport streamable-http
 
 run-stdio: ## Run with STDIO transport (interactive)
 	$(CONTAINER_RUNTIME) run --rm -it --name $(CONTAINER_NAME) \
-		-v $(KUBECONFIG):/app/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
-		-e RHOAI_MCP_KUBECONFIG_PATH=/app/kubeconfig/config \
+		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=$(LOG_LEVEL) \
 		$(FULL_IMAGE) --transport stdio
 
 run-dev: ## Run with debug logging and dangerous ops enabled
 	$(CONTAINER_RUNTIME) run --rm --name $(CONTAINER_NAME) \
 		-p $(PORT):8000 \
-		-v $(KUBECONFIG):/app/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
-		-e RHOAI_MCP_KUBECONFIG_PATH=/app/kubeconfig/config \
+		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=DEBUG \
 		-e RHOAI_MCP_ENABLE_DANGEROUS_OPERATIONS=true \
 		$(FULL_IMAGE) --transport sse
@@ -104,9 +104,9 @@ endif
 run-background: ## Run in background (detached) with HTTP transport
 	$(CONTAINER_RUNTIME) run -d --name $(CONTAINER_NAME) \
 		-p $(PORT):8000 \
-		-v $(KUBECONFIG):/app/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
-		-e RHOAI_MCP_KUBECONFIG_PATH=/app/kubeconfig/config \
+		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=$(LOG_LEVEL) \
 		$(FULL_IMAGE) --transport sse
 

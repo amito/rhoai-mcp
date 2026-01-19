@@ -34,7 +34,7 @@ pip install -e .
 rhoai-mcp
 ```
 
-### Using Container (Docker/Podman)
+### Using Container (Podman/Docker)
 
 ```bash
 # Build the image
@@ -54,20 +54,20 @@ Or run directly without Make:
 
 ```bash
 # Build
-podman build -t rhoai-mcp:latest .
+podman build -f Containerfile -t rhoai-mcp:latest .
 
 # Run with HTTP transport
 podman run -p 8000:8000 \
-  -v ~/.kube/config:/app/kubeconfig/config:ro \
+  -v ~/.kube/config:/opt/app-root/src/kubeconfig/config:ro \
   -e RHOAI_MCP_AUTH_MODE=kubeconfig \
-  -e RHOAI_MCP_KUBECONFIG_PATH=/app/kubeconfig/config \
+  -e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
   rhoai-mcp:latest --transport sse
 
 # Run with STDIO transport
 podman run -it \
-  -v ~/.kube/config:/app/kubeconfig/config:ro \
+  -v ~/.kube/config:/opt/app-root/src/kubeconfig/config:ro \
   -e RHOAI_MCP_AUTH_MODE=kubeconfig \
-  -e RHOAI_MCP_KUBECONFIG_PATH=/app/kubeconfig/config \
+  -e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
   rhoai-mcp:latest --transport stdio
 ```
 

@@ -1,37 +1,35 @@
-# syntax=docker/dockerfile:1
-# Multi-stage Dockerfile for RHOAI MCP Server
-# Supports Docker and Podman with all transport modes (stdio, SSE, streamable-http)
+# Multi-stage Containerfile for RHOAI MCP Server
+# Optimized for Podman with Red Hat UBI base images
+# Supports all transport modes (stdio, SSE, streamable-http)
 
 # =============================================================================
 # Stage 1: Builder - Install dependencies with uv
 # =============================================================================
-FROM python:3.12-slim AS builder
+FROM registry.access.redhat.com/ubi9/python-312 AS builder
 
 # Copy uv from official image for fast, reproducible builds
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Set working directory
-WORKDIR /app
+# Set working directory (UBI default is /opt/app-root/src)
+WORKDIR /opt/app-root/src
 
 # Copy dependency files first for better layer caching
 COPY pyproject.toml uv.lock ./
 
 # Install dependencies (no dev dependencies for production)
-# Use BuildKit cache mount for faster rebuilds
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --no-install-project
 
-# Copy source code
+# Copy source code and README (required by pyproject.toml)
 COPY src/ ./src/
+COPY README.md ./
 
 # Install the project itself
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev
 
 # =============================================================================
 # Stage 2: Runtime - Minimal production image
 # =============================================================================
-FROM python:3.12-slim AS runtime
+FROM registry.access.redhat.com/ubi9/python-312 AS runtime
 
 # Labels for container metadata
 LABEL org.opencontainers.image.title="RHOAI MCP Server"
@@ -40,18 +38,16 @@ LABEL org.opencontainers.image.vendor="Red Hat"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.source="https://github.com/admiller/rhoai-mcp-prototype"
 
-# Create non-root user for security
-RUN groupadd --gid 1000 rhoai && \
-    useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash rhoai
+# Set working directory (UBI default is /opt/app-root/src)
+WORKDIR /opt/app-root/src
 
-# Set working directory
-WORKDIR /app
-
-# Copy virtual environment from builder
-COPY --from=builder --chown=rhoai:rhoai /app/.venv /app/.venv
+# Copy virtual environment and source from builder
+# Source is needed because uv installs in editable mode
+COPY --from=builder /opt/app-root/src/.venv /opt/app-root/src/.venv
+COPY --from=builder /opt/app-root/src/src /opt/app-root/src/src
 
 # Add virtual environment to PATH
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/opt/app-root/src/.venv/bin:$PATH"
 
 # Environment variables with container-friendly defaults
 # Transport: default to stdio for Claude Desktop compatibility
@@ -67,8 +63,8 @@ ENV RHOAI_MCP_LOG_LEVEL="INFO"
 # Expose port for HTTP transports (SSE, streamable-http)
 EXPOSE 8000
 
-# Switch to non-root user
-USER rhoai
+# UBI runs as non-root by default (UID 1001)
+USER 1001
 
 # Health check for HTTP transports
 # Note: Only works with SSE/streamable-http, not stdio
