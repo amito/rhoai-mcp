@@ -31,10 +31,17 @@ class DataScienceProject(BaseModel):
         namespace: Any,
         resource_summary: ResourceSummary | None = None,
     ) -> "DataScienceProject":
-        """Create from Kubernetes namespace object."""
+        """Create from Kubernetes namespace or OpenShift Project object."""
         metadata = namespace.metadata
-        labels = metadata.labels or {}
-        annotations = metadata.annotations or {}
+        # Convert to plain dicts if they're ResourceField objects (from dynamic client)
+        labels = metadata.labels
+        if labels is not None and not isinstance(labels, dict):
+            labels = dict(labels)
+        labels = labels or {}
+        annotations = metadata.annotations
+        if annotations is not None and not isinstance(annotations, dict):
+            annotations = dict(annotations)
+        annotations = annotations or {}
 
         # Determine status based on namespace phase
         status = ResourceStatus.READY
@@ -54,6 +61,19 @@ class DataScienceProject(BaseModel):
             status=status,
             resource_summary=resource_summary,
         )
+
+    @classmethod
+    def from_project(
+        cls,
+        project: Any,
+        resource_summary: ResourceSummary | None = None,
+    ) -> "DataScienceProject":
+        """Create from OpenShift Project object.
+
+        OpenShift Projects have the same structure as Kubernetes namespaces,
+        so this delegates to from_namespace.
+        """
+        return cls.from_namespace(project, resource_summary)
 
 
 class ProjectCreate(BaseModel):

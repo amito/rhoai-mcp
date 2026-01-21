@@ -37,14 +37,26 @@ class ResourceMetadata(BaseModel):
 
     @classmethod
     def from_k8s_metadata(cls, metadata: Any) -> "ResourceMetadata":
-        """Create from Kubernetes metadata object."""
+        """Create from Kubernetes metadata object.
+
+        Handles both core API objects (which return plain dicts) and
+        dynamic client objects (which return ResourceField objects).
+        """
+        # Convert labels/annotations to plain dicts if they're ResourceField objects
+        labels = metadata.labels
+        if labels is not None and not isinstance(labels, dict):
+            labels = dict(labels)
+        annotations = metadata.annotations
+        if annotations is not None and not isinstance(annotations, dict):
+            annotations = dict(annotations)
+
         return cls(
             name=metadata.name,
-            namespace=metadata.namespace,
-            uid=metadata.uid,
-            creation_timestamp=metadata.creation_timestamp,
-            labels=metadata.labels or {},
-            annotations=metadata.annotations or {},
+            namespace=getattr(metadata, "namespace", None),
+            uid=getattr(metadata, "uid", None),
+            creation_timestamp=getattr(metadata, "creation_timestamp", None),
+            labels=labels or {},
+            annotations=annotations or {},
         )
 
 

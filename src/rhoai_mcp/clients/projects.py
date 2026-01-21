@@ -20,13 +20,17 @@ class ProjectClient:
     def list_projects(self) -> list[DataScienceProject]:
         """List all Data Science Projects.
 
-        Only returns namespaces with the opendatahub.io/dashboard=true label.
+        Uses the OpenShift Projects API to list only projects the user has
+        access to, then filters for those with the opendatahub.io/dashboard=true
+        label indicating they are RHOAI Data Science Projects.
         """
         label_selector = RHOAILabels.filter_selector(
             **{RHOAILabels.DASHBOARD: "true"}
         )
-        namespaces = self._k8s.list_namespaces(label_selector=label_selector)
-        return [DataScienceProject.from_namespace(ns) for ns in namespaces]
+        # Use OpenShift Projects API which returns only user-accessible projects
+        # This avoids requiring cluster-wide namespace list permissions
+        projects = self._k8s.list_projects(label_selector=label_selector)
+        return [DataScienceProject.from_project(p) for p in projects]
 
     def get_project(
         self, name: str, include_summary: bool = False

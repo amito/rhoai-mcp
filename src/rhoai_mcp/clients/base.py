@@ -44,6 +44,14 @@ class CRDDefinition:
 class CRDs:
     """RHOAI Custom Resource Definitions."""
 
+    # OpenShift Projects (for listing user-accessible projects)
+    PROJECT = CRDDefinition(
+        group="project.openshift.io",
+        version="v1",
+        plural="projects",
+        kind="Project",
+    )
+
     # Kubeflow Notebooks
     NOTEBOOK = CRDDefinition(
         group="kubeflow.org",
@@ -171,29 +179,34 @@ class K8sClient:
         if not kubeconfig_path.exists():
             raise AuthenticationError(f"Kubeconfig not found: {kubeconfig_path}")
 
-        config.load_kube_config(
+        # Use new_client_from_config to get a properly configured ApiClient
+        # This avoids issues with global configuration state
+        return config.new_client_from_config(
             config_file=str(kubeconfig_path),
             context=self._config.kubeconfig_context,
         )
-        return client.ApiClient()
 
     def _create_auto_client(self) -> client.ApiClient:
         """Auto-detect authentication mode."""
         # Try in-cluster first
         if Path("/var/run/secrets/kubernetes.io/serviceaccount/token").exists():
             logger.info("Using in-cluster authentication")
+            # Load in-cluster config and return properly configured client
             config.load_incluster_config()
-            return client.ApiClient()
+            # After load_incluster_config, we need to create client with the loaded config
+            # The incluster config sets the default, so we create Configuration from it
+            configuration = client.Configuration.get_default_copy()
+            return client.ApiClient(configuration)
 
         # Fall back to kubeconfig
         kubeconfig_path = self._config.effective_kubeconfig_path
         if kubeconfig_path.exists():
             logger.info(f"Using kubeconfig: {kubeconfig_path}")
-            config.load_kube_config(
+            # Use new_client_from_config to get a properly configured ApiClient
+            return config.new_client_from_config(
                 config_file=str(kubeconfig_path),
                 context=self._config.kubeconfig_context,
             )
-            return client.ApiClient()
 
         raise AuthenticationError(
             "No valid authentication method found. "
@@ -322,6 +335,19 @@ class K8sClient:
             if e.status == 404:
                 raise NotFoundError(crd.kind, name, namespace)
             raise RHOAIError(f"Failed to patch {crd.kind} '{name}': {e.reason}")
+
+    # OpenShift Project operations (preferred for listing user-accessible projects)
+    def list_projects(
+        self,
+        label_selector: str | None = None,
+    ) -> list[ResourceInstance]:
+        """List OpenShift projects the user has access to.
+
+        This uses the OpenShift Projects API which only returns projects
+        the authenticated user has permission to access, unlike listing
+        all namespaces which requires cluster-wide permissions.
+        """
+        return self.list(CRDs.PROJECT, label_selector=label_selector)
 
     # Namespace operations (used for Data Science Projects)
     def get_namespace(self, name: str) -> Any:
