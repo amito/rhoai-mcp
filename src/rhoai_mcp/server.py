@@ -1,5 +1,7 @@
 """FastMCP server definition for RHOAI."""
 
+from __future__ import annotations
+
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -48,37 +50,44 @@ class RHOAIServer:
             raise RuntimeError("Server not initialized.")
         return self._mcp
 
-    def create_mcp(self) -> FastMCP:
-        """Create and configure the FastMCP server."""
-        # Create MCP server with lifespan
-        mcp = FastMCP(
-            name="rhoai-mcp",
-            version=__version__,
-            description="MCP server for Red Hat OpenShift AI - enables AI agents to "
-            "interact with RHOAI environments including workbenches, "
-            "model serving, pipelines, and data connections.",
-        )
+    def _create_lifespan(self):
+        """Create the lifespan context manager for the MCP server."""
+        server_self = self
 
-        # Store reference
-        self._mcp = mcp
-
-        # Register lifespan
-        @mcp.custom_server_method("lifespan")
         @asynccontextmanager
-        async def lifespan() -> AsyncIterator[None]:
+        async def lifespan(app) -> AsyncIterator[None]:
             """Manage server lifecycle - connect K8s on startup, disconnect on shutdown."""
             logger.info("Starting RHOAI MCP server...")
-            self._k8s_client = K8sClient(self._config)
+            server_self._k8s_client = K8sClient(server_self._config)
             try:
-                self._k8s_client.connect()
+                server_self._k8s_client.connect()
                 logger.info("RHOAI MCP server started successfully")
                 yield
             finally:
                 logger.info("Shutting down RHOAI MCP server...")
-                if self._k8s_client:
-                    self._k8s_client.disconnect()
-                self._k8s_client = None
+                if server_self._k8s_client:
+                    server_self._k8s_client.disconnect()
+                server_self._k8s_client = None
                 logger.info("RHOAI MCP server shut down")
+
+        return lifespan
+
+    def create_mcp(self) -> FastMCP:
+        """Create and configure the FastMCP server."""
+        # Create MCP server with lifespan
+        # Host/port configured for container networking (0.0.0.0 allows external access)
+        mcp = FastMCP(
+            name="rhoai-mcp",
+            instructions="MCP server for Red Hat OpenShift AI - enables AI agents to "
+            "interact with RHOAI environments including workbenches, "
+            "model serving, pipelines, and data connections.",
+            lifespan=self._create_lifespan(),
+            host=self._config.host,
+            port=self._config.port,
+        )
+
+        # Store reference
+        self._mcp = mcp
 
         # Register all tools
         self._register_tools(mcp)
@@ -91,7 +100,14 @@ class RHOAIServer:
     def _register_tools(self, mcp: FastMCP) -> None:
         """Register all MCP tools."""
         # Import and register tools from each module
-        from rhoai_mcp.tools import projects, notebooks, inference, connections, storage, pipelines
+        from rhoai_mcp.tools import (
+            connections,
+            inference,
+            notebooks,
+            pipelines,
+            projects,
+            storage,
+        )
 
         projects.register_tools(mcp, self)
         notebooks.register_tools(mcp, self)

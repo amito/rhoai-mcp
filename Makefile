@@ -18,6 +18,16 @@ PORT ?= 8000
 KUBECONFIG ?= $(HOME)/.kube/config
 LOG_LEVEL ?= INFO
 
+# Podman-specific flags for user namespace mapping (allows reading host user files)
+# This maps the current user to the container user for file permission compatibility
+ifeq ($(findstring podman,$(CONTAINER_RUNTIME)),podman)
+    USERNS_FLAGS := --userns=keep-id
+    VOLUME_FLAGS := :ro,Z
+else
+    USERNS_FLAGS :=
+    VOLUME_FLAGS := :ro
+endif
+
 .PHONY: help build build-no-cache run run-http run-stdio run-dev run-token stop logs shell clean info
 
 # =============================================================================
@@ -52,8 +62,9 @@ run: run-http ## Default: run with HTTP (SSE) transport
 
 run-http: ## Run with HTTP (SSE) transport on port $(PORT)
 	$(CONTAINER_RUNTIME) run --rm --name $(CONTAINER_NAME) \
+		$(USERNS_FLAGS) \
 		-p $(PORT):8000 \
-		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config$(VOLUME_FLAGS) \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
 		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=$(LOG_LEVEL) \
@@ -61,8 +72,9 @@ run-http: ## Run with HTTP (SSE) transport on port $(PORT)
 
 run-streamable: ## Run with streamable-http transport
 	$(CONTAINER_RUNTIME) run --rm --name $(CONTAINER_NAME) \
+		$(USERNS_FLAGS) \
 		-p $(PORT):8000 \
-		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config$(VOLUME_FLAGS) \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
 		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=$(LOG_LEVEL) \
@@ -70,7 +82,8 @@ run-streamable: ## Run with streamable-http transport
 
 run-stdio: ## Run with STDIO transport (interactive)
 	$(CONTAINER_RUNTIME) run --rm -it --name $(CONTAINER_NAME) \
-		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
+		$(USERNS_FLAGS) \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config$(VOLUME_FLAGS) \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
 		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=$(LOG_LEVEL) \
@@ -78,8 +91,9 @@ run-stdio: ## Run with STDIO transport (interactive)
 
 run-dev: ## Run with debug logging and dangerous ops enabled
 	$(CONTAINER_RUNTIME) run --rm --name $(CONTAINER_NAME) \
+		$(USERNS_FLAGS) \
 		-p $(PORT):8000 \
-		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config$(VOLUME_FLAGS) \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
 		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=DEBUG \
@@ -103,8 +117,9 @@ endif
 
 run-background: ## Run in background (detached) with HTTP transport
 	$(CONTAINER_RUNTIME) run -d --name $(CONTAINER_NAME) \
+		$(USERNS_FLAGS) \
 		-p $(PORT):8000 \
-		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config:ro \
+		-v $(KUBECONFIG):/opt/app-root/src/kubeconfig/config$(VOLUME_FLAGS) \
 		-e RHOAI_MCP_AUTH_MODE=kubeconfig \
 		-e RHOAI_MCP_KUBECONFIG_PATH=/opt/app-root/src/kubeconfig/config \
 		-e RHOAI_MCP_LOG_LEVEL=$(LOG_LEVEL) \

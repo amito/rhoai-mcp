@@ -163,17 +163,23 @@ def main() -> int:
     mcp = create_server(config)
 
     # Run with appropriate transport
+    # Note: Host/port are set via RHOAI_MCP_HOST/PORT env vars which FastMCP reads
+    import os
+
+    os.environ.setdefault("UVICORN_HOST", config.host)
+    os.environ.setdefault("UVICORN_PORT", str(config.port))
+
     if config.transport == TransportMode.STDIO:
         logger.info("Running with stdio transport")
         mcp.run(transport="stdio")
     elif config.transport == TransportMode.SSE:
         logger.info(f"Running with SSE transport on {config.host}:{config.port}")
-        mcp.run(transport="sse", host=config.host, port=config.port)
+        mcp.run(transport="sse")
     elif config.transport == TransportMode.STREAMABLE_HTTP:
         logger.info(
             f"Running with streamable-http transport on {config.host}:{config.port}"
         )
-        mcp.run(transport="streamable-http", host=config.host, port=config.port)
+        mcp.run(transport="streamable-http")
 
     return 0
 

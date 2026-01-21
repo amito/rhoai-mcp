@@ -1,5 +1,7 @@
 """Base Kubernetes client with RHOAI CRD definitions."""
 
+from __future__ import annotations
+
 import logging
 from contextlib import contextmanager
 from pathlib import Path
