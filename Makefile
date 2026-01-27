@@ -1,5 +1,5 @@
-# Makefile for RHOAI MCP Server Container Management
-# Podman-first container management (also supports Docker)
+# Makefile for RHOAI MCP Server
+# Podman-first container management and uv workspace development
 
 # =============================================================================
 # Configuration
@@ -29,20 +29,66 @@ else
 endif
 
 .PHONY: help build build-no-cache run run-http run-stdio run-dev run-token stop logs shell clean info
+.PHONY: dev install sync test lint format check typecheck
 
 # =============================================================================
 # Help
 # =============================================================================
 
 help: ## Show this help message
-	@echo "RHOAI MCP Server - Container Management"
+	@echo "RHOAI MCP Server - Development & Container Management"
 	@echo ""
 	@echo "Detected runtime: $(CONTAINER_RUNTIME)"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "Targets:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@echo "Development:"
+	@grep -E '^(dev|install|sync|test|lint|format|check|typecheck):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Container:"
+	@grep -E '^(build|run|stop|logs|shell|clean|info|test-):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+
+# =============================================================================
+# Development (uv workspace)
+# =============================================================================
+
+dev: install ## Setup development environment
+	@echo "Development environment ready!"
+	@echo "Run 'make test' to run tests"
+	@echo "Run 'uv run rhoai-mcp --help' to run the server"
+
+install: ## Install all workspace packages in development mode
+	uv sync --all-packages
+
+sync: ## Sync dependencies without installing dev packages
+	uv sync --all-packages --no-dev
+
+test: ## Run all tests
+	uv run pytest packages/*/tests tests/integration -v
+
+test-unit: ## Run unit tests only
+	uv run pytest packages/*/tests -v
+
+test-integration: ## Run integration tests only
+	uv run pytest tests/integration -v
+
+test-package: ## Run tests for a specific package (e.g., make test-package PKG=core)
+ifndef PKG
+	$(error PKG is required. Usage: make test-package PKG=core)
+endif
+	uv run pytest packages/$(PKG)/tests -v
+
+lint: ## Run linter (ruff)
+	uv run ruff check packages/
+
+format: ## Format code (ruff)
+	uv run ruff format packages/
+	uv run ruff check --fix packages/
+
+typecheck: ## Run type checker (mypy)
+	uv run mypy packages/*/src
+
+check: lint typecheck ## Run all checks (lint + typecheck)
 
 # =============================================================================
 # Build
@@ -55,7 +101,7 @@ build-no-cache: ## Build the container image without cache
 	$(CONTAINER_RUNTIME) build -f Containerfile --no-cache -t $(FULL_IMAGE) .
 
 # =============================================================================
-# Run
+# Run (Container)
 # =============================================================================
 
 run: run-http ## Default: run with HTTP (SSE) transport
@@ -126,6 +172,19 @@ run-background: ## Run in background (detached) with HTTP transport
 		$(FULL_IMAGE) --transport sse
 
 # =============================================================================
+# Run (Local Development)
+# =============================================================================
+
+run-local: ## Run server locally (not in container)
+	uv run rhoai-mcp --transport sse
+
+run-local-stdio: ## Run server locally with stdio transport
+	uv run rhoai-mcp --transport stdio
+
+run-local-debug: ## Run server locally with debug logging
+	RHOAI_MCP_LOG_LEVEL=DEBUG uv run rhoai-mcp --transport sse
+
+# =============================================================================
 # Management
 # =============================================================================
 
@@ -142,6 +201,16 @@ shell: ## Open a shell in the running container
 clean: stop ## Remove container and image
 	-$(CONTAINER_RUNTIME) rmi $(FULL_IMAGE) 2>/dev/null || true
 
+clean-dev: ## Clean development artifacts
+	rm -rf .venv
+	rm -rf packages/*/.venv
+	rm -rf packages/*/dist
+	rm -rf packages/*/*.egg-info
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name .mypy_cache -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name .ruff_cache -exec rm -rf {} + 2>/dev/null || true
+
 # =============================================================================
 # Testing
 # =============================================================================
@@ -151,6 +220,9 @@ test-health: ## Test the health endpoint
 
 test-build: build ## Verify the image builds and runs
 	$(CONTAINER_RUNTIME) run --rm $(FULL_IMAGE) --version
+
+test-plugins: ## Verify all plugins are discovered
+	uv run python -c "from rhoai_mcp_core.server import RHOAIServer; s = RHOAIServer(); print('Plugins:', list(s._plugins.keys()))"
 
 # =============================================================================
 # Info
@@ -162,3 +234,6 @@ info: ## Show configuration
 	@echo "RUNTIME:   $(CONTAINER_RUNTIME)"
 	@echo "PORT:      $(PORT)"
 	@echo "KUBECONFIG: $(KUBECONFIG)"
+	@echo ""
+	@echo "Workspace packages:"
+	@ls -1 packages/
