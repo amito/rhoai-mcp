@@ -177,16 +177,16 @@ export RHOAI_MCP_READ_ONLY_MODE=true
 | **RBAC-Aware** | Uses OpenShift Projects API to respect user permissions | Always |
 | **Auth Validation** | Validates authentication configuration at startup | Always |
 
-## Usage with Claude Desktop
+## Usage with Claude Code
 
-Add to your Claude Desktop configuration (`~/.config/claude/claude_desktop_config.json`):
+Add to your project's `.mcp.json` file:
 
 ```json
 {
   "mcpServers": {
     "rhoai": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/rhoai-mcp-prototype", "rhoai-mcp"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/opendatahub-io/rhoai-mcp", "rhoai-mcp"],
       "env": {
         "RHOAI_MCP_KUBECONFIG_PATH": "/home/user/.kube/config"
       }
@@ -195,13 +195,34 @@ Add to your Claude Desktop configuration (`~/.config/claude/claude_desktop_confi
 }
 ```
 
-Or with an installed package:
+## Usage with Claude Desktop
+
+Add to your Claude Desktop configuration (`~/.config/claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "rhoai": {
-      "command": "rhoai-mcp",
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/opendatahub-io/rhoai-mcp", "rhoai-mcp"],
+      "env": {
+        "RHOAI_MCP_KUBECONFIG_PATH": "/home/user/.kube/config"
+      }
+    }
+  }
+}
+```
+
+### Local Development
+
+For contributors working with a local clone:
+
+```json
+{
+  "mcpServers": {
+    "rhoai": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/rhoai-mcp", "rhoai-mcp"],
       "env": {
         "RHOAI_MCP_KUBECONFIG_PATH": "/home/user/.kube/config"
       }
