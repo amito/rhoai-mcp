@@ -118,3 +118,18 @@ class TestRHOAIConfig:
         config = RHOAIConfig()
         assert config.log_level == LogLevel.DEBUG
         assert config.port == 9000
+
+
+class TestNeuralNavConfig:
+    """Tests for NeuralNav configuration."""
+
+    def test_neuralnav_url_default(self) -> None:
+        """Default NeuralNav URL points to in-cluster service."""
+        config = RHOAIConfig()
+        assert config.neuralnav_url == "http://backend.neuralnav.svc.cluster.local:8000"
+
+    def test_neuralnav_url_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """NeuralNav URL can be set via environment variable."""
+        monkeypatch.setenv("RHOAI_MCP_NEURALNAV_URL", "http://localhost:9999")
+        config = RHOAIConfig()
+        assert config.neuralnav_url == "http://localhost:9999"

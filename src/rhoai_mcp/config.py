@@ -189,6 +189,12 @@ class RHOAIConfig(BaseSettings):
         description="Skip TLS certificate verification for Model Registry (not recommended for production)",
     )
 
+    # Neural Navigator settings
+    neuralnav_url: str = Field(
+        default="http://backend.neuralnav.svc.cluster.local:8000",
+        description="Neural Navigator backend URL",
+    )
+
     @field_validator("kubeconfig_path", mode="before")
     @classmethod
     def resolve_kubeconfig_path(cls, v: str | Path | None) -> Path | None:
