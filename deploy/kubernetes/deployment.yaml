@@ -43,53 +43,72 @@ metadata:
     app.kubernetes.io/name: rhoai-mcp
     app.kubernetes.io/component: rbac
 rules:
-  # Core Kubernetes resources
+  # Core Kubernetes resources (read-only)
   - apiGroups: [""]
     resources:
-      - namespaces
       - pods
       - pods/log
       - services
-      - configmaps
-      - secrets
-      - persistentvolumeclaims
       - events
+      - nodes
     verbs: ["get", "list", "watch"]
 
-  # RHOAI / Open Data Hub resources
+  # Namespaces (read-write for Data Science Project management)
+  - apiGroups: [""]
+    resources:
+      - namespaces
+    verbs: ["get", "list", "watch", "create", "delete"]
+
+  # Core Kubernetes resources (read-write for data connections and storage)
+  - apiGroups: [""]
+    resources:
+      - secrets
+      - persistentvolumeclaims
+    verbs: ["get", "list", "watch", "create", "delete"]
+
+  # Kubeflow Notebooks
   - apiGroups: ["kubeflow.org"]
     resources:
       - notebooks
-      - profiles
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+
+  # Kubeflow Training Operator v2
+  - apiGroups: ["trainer.kubeflow.org"]
+    resources:
+      - trainjobs
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
-  # Data Science Pipelines
-  - apiGroups: ["tekton.dev"]
+  - apiGroups: ["trainer.kubeflow.org"]
     resources:
-      - pipelineruns
-      - taskruns
-      - pipelines
-      - tasks
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+      - trainingruntimes
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["trainer.kubeflow.org"]
+    resources:
+      - clustertrainingruntimes
+    verbs: ["get", "list", "watch", "create", "delete"]
+
+  # Data Science Pipelines
+  - apiGroups: ["datasciencepipelinesapplications.opendatahub.io"]
+    resources:
+      - datasciencepipelinesapplications
+    verbs: ["get", "list", "watch", "create", "delete"]
 
   # Model Serving (KServe)
   - apiGroups: ["serving.kserve.io"]
     resources:
       - inferenceservices
-      - servingruntimes
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete"]
 
-  # Model Serving (OpenVINO)
-  - apiGroups: ["serving.openvino.ai"]
+  - apiGroups: ["serving.kserve.io"]
     resources:
-      - ovms
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+      - servingruntimes
+    verbs: ["get", "list", "watch", "create"]
 
-  # Data Science Project resources
-  - apiGroups: ["opendatahub.io"]
+  # ODH / RHOAI platform components (discovery)
+  - apiGroups: ["datasciencecluster.opendatahub.io"]
     resources:
       - datascienceclusters
-      - datasciencepipelinesapplications
     verbs: ["get", "list", "watch"]
 
   # Model Registry (platform component discovery)
@@ -98,11 +117,11 @@ rules:
       - modelregistries
     verbs: ["get", "list", "watch"]
 
-  # Storage connections
-  - apiGroups: ["objectbucket.io"]
+  # OpenShift Templates (serving runtime discovery)
+  - apiGroups: ["template.openshift.io"]
     resources:
-      - objectbucketclaims
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+      - templates
+    verbs: ["get", "list", "watch"]
 
   # Routes (OpenShift)
   - apiGroups: ["route.openshift.io"]
@@ -114,7 +133,7 @@ rules:
   - apiGroups: ["project.openshift.io"]
     resources:
       - projects
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]
 
 ---
 # =============================================================================
