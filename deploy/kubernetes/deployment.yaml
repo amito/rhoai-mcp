@@ -92,6 +92,12 @@ rules:
       - datasciencepipelinesapplications
     verbs: ["get", "list", "watch"]
 
+  # Model Registry (platform component discovery)
+  - apiGroups: ["components.platform.opendatahub.io"]
+    resources:
+      - modelregistries
+    verbs: ["get", "list", "watch"]
+
   # Storage connections
   - apiGroups: ["objectbucket.io"]
     resources:
@@ -253,6 +259,46 @@ spec:
   selector:
     app.kubernetes.io/name: rhoai-mcp
     app.kubernetes.io/component: server
+
+---
+# =============================================================================
+# NetworkPolicy: Allow rhoai-mcp to reach model-catalog service
+# Applied in the registries namespace (where the target pods live).
+# NOTE: The namespace below defaults to "rhoai-model-registries". If your
+# cluster uses a custom registries namespace (ModelRegistry.spec.registriesNamespace),
+# update metadata.namespace to match.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rhoai-mcp-to-model-catalog
+  namespace: rhoai-model-registries
+  labels:
+    app.kubernetes.io/name: rhoai-mcp
+    app.kubernetes.io/component: networkpolicy
+spec:
+  podSelector:
+    matchLabels:
+      app: model-catalog
+      app.kubernetes.io/name: model-catalog
+      component: model-catalog
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rhoai-mcp
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rhoai-mcp
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 8443
+          protocol: TCP
+        - port: 443
+          protocol: TCP
 
 ---
 # =============================================================================
