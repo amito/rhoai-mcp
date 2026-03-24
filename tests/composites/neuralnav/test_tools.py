@@ -31,6 +31,33 @@ def _make_mock_server() -> MagicMock:
     return server
 
 
+SAMPLE_REC = ModelRecommendation(
+    model_id="meta-llama/Llama-3.1-70B-Instruct",
+    model_name="Llama 3.1 70B",
+    gpu_config={
+        "gpu_type": "NVIDIA-H100",
+        "gpu_count": 2,
+        "tensor_parallel": 2,
+        "replicas": 1,
+    },
+    predicted_ttft_p95_ms=140,
+    predicted_itl_p95_ms=50,
+    predicted_e2e_p95_ms=1200,
+    predicted_throughput_qps=100.0,
+    cost_per_hour_usd=3.98,
+    cost_per_month_usd=2872.32,
+    meets_slo=True,
+    reasoning="Selected for chatbot",
+    scores={
+        "accuracy_score": 78,
+        "price_score": 65,
+        "latency_score": 95,
+        "complexity_score": 90,
+        "balanced_score": 75.3,
+        "slo_status": "compliant",
+    },
+)
+
 SAMPLE_RESULT = RecommendationResult(
     specification={
         "use_case": "chatbot_conversational",
@@ -42,34 +69,9 @@ SAMPLE_RESULT = RecommendationResult(
             "expected_qps": 10.0,
         },
     },
-    recommendations=[
-        ModelRecommendation(
-            model_id="meta-llama/Llama-3.1-70B-Instruct",
-            model_name="Llama 3.1 70B",
-            gpu_config={
-                "gpu_type": "NVIDIA-H100",
-                "gpu_count": 2,
-                "tensor_parallel": 2,
-                "replicas": 1,
-            },
-            predicted_ttft_p95_ms=140,
-            predicted_itl_p95_ms=50,
-            predicted_e2e_p95_ms=1200,
-            predicted_throughput_qps=100.0,
-            cost_per_hour_usd=3.98,
-            cost_per_month_usd=2872.32,
-            meets_slo=True,
-            reasoning="Selected for chatbot",
-            scores={
-                "accuracy_score": 78,
-                "price_score": 65,
-                "latency_score": 95,
-                "complexity_score": 90,
-                "balanced_score": 75.3,
-                "slo_status": "compliant",
-            },
-        ),
-    ],
+    top_performance=SAMPLE_REC,
+    top_cost=SAMPLE_REC,
+    top_balanced=SAMPLE_REC,
     total_configs_evaluated=2847,
     configs_after_filters=542,
 )
@@ -98,10 +100,12 @@ class TestRecommendModelTool:
 
         assert "specification" in result
         assert "recommendations" in result
-        assert len(result["recommendations"]) == 1
-        assert result["recommendations"][0]["rank"] == 1
-        assert result["recommendations"][0]["model"] == "Llama 3.1 70B"
-        assert result["recommendations"][0]["score"] == 75.3
+        recs = result["recommendations"]
+        assert "top_balanced" in recs
+        assert recs["top_balanced"]["model"] == "Llama 3.1 70B"
+        assert recs["top_balanced"]["score"] == 75.3
+        assert "top_performance" in recs
+        assert "top_cost" in recs
 
     @patch("rhoai_mcp.composites.neuralnav.tools.NeuralNavClient")
     def test_with_overrides(self, mock_client_class: MagicMock) -> None:
@@ -410,7 +414,6 @@ class TestRecommendModelTool:
                 "slo_targets": {},
                 "traffic_profile": {},
             },
-            recommendations=[],
             total_configs_evaluated=2847,
             configs_after_filters=0,
         )
@@ -423,8 +426,37 @@ class TestRecommendModelTool:
 
         result = recommend_model(text="I need a chatbot")
 
-        assert result["recommendations"] == []
+        assert result["recommendations"] == {}
         assert "message" in result
+
+    @patch("rhoai_mcp.composites.neuralnav.tools.NeuralNavClient")
+    def test_partial_recommendations(self, mock_client_class: MagicMock) -> None:
+        """When some categories are None, only populated ones appear."""
+        partial_result = RecommendationResult(
+            specification={
+                "use_case": "chatbot_conversational",
+                "user_count": 1000,
+                "slo_targets": {},
+                "traffic_profile": {},
+            },
+            top_balanced=SAMPLE_REC,
+            # top_performance and top_cost are None
+            total_configs_evaluated=2847,
+            configs_after_filters=100,
+        )
+        mock_client_class.return_value.recommend.return_value = partial_result
+        mock_mcp = _make_mock_mcp()
+        mock_server = _make_mock_server()
+
+        register_tools(mock_mcp, mock_server)
+        recommend_model = mock_mcp._registered_tools["recommend_model"]
+
+        result = recommend_model(text="I need a chatbot")
+
+        assert "top_balanced" in result["recommendations"]
+        assert "top_performance" not in result["recommendations"]
+        assert "top_cost" not in result["recommendations"]
+        assert "message" not in result
 
     @patch("rhoai_mcp.composites.neuralnav.tools.NeuralNavClient")
     def test_empty_text_returns_error(self, mock_client_class: MagicMock) -> None:

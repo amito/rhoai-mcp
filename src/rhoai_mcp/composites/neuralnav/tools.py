@@ -12,6 +12,7 @@ from rhoai_mcp.composites.neuralnav.client import (
     NeuralNavClient,
     NeuralNavConnectionError,
 )
+from rhoai_mcp.composites.neuralnav.models import ModelRecommendation
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,26 @@ OPTIMIZATION_PROFILES: dict[str, dict[str, int]] = {
 }
 
 
+def _format_recommendation(rec: ModelRecommendation, slot: str) -> dict[str, Any]:
+    """Format a single recommendation compactly for LLM context."""
+    compact: dict[str, Any] = {}
+    if rec.model_name:
+        compact["model"] = rec.model_name
+    elif rec.model_id:
+        compact["model"] = rec.model_id
+    if rec.gpu_config:
+        gpu = rec.gpu_config
+        compact["gpu"] = f"{gpu.gpu_count}x {gpu.gpu_type}"
+    if rec.cost_per_month_usd is not None:
+        compact["cost_usd_month"] = rec.cost_per_month_usd
+    compact["meets_slo"] = rec.meets_slo
+    if slot == "top_balanced" and rec.scores:
+        compact["score"] = rec.scores.balanced_score
+    if rec.reasoning:
+        compact["reasoning"] = rec.reasoning
+    return compact
+
+
 def register_tools(mcp: FastMCP, server: RHOAIServer) -> None:
     """Register NeuralNav composite tools with the MCP server."""
 
@@ -63,8 +84,8 @@ def register_tools(mcp: FastMCP, server: RHOAIServer) -> None:
 
         Runs the full NeuralNav recommendation flow: extracts intent from
         natural language, builds technical specifications, and returns
-        the top-5 balanced model recommendations ranked by a weighted
-        composite of accuracy, cost, latency, and deployment complexity.
+        three named recommendations: top_performance (lowest latency),
+        top_cost (cheapest), and top_balanced (weighted composite).
 
         Args:
             text: Natural language description of the use case
@@ -95,8 +116,9 @@ def register_tools(mcp: FastMCP, server: RHOAIServer) -> None:
                 mean, p90, p95 (default), p99.
 
         Returns:
-            Top-5 balanced model recommendations with assembled specification,
-            or error dict if the request fails.
+            Three top model recommendations (top_performance, top_cost,
+            top_balanced) with assembled specification, or error dict
+            if the request fails.
         """
         # Validate text input
         if not text or not text.strip():
@@ -192,26 +214,15 @@ def register_tools(mcp: FastMCP, server: RHOAIServer) -> None:
                 "status_code": e.status_code,
             }
 
-        # Format recommendations compactly to fit small LLM context windows
-        recommendations = []
-        for i, rec in enumerate(result.recommendations[:5], 1):
-            compact: dict[str, Any] = {"rank": i}
-            if rec.model_name:
-                compact["model"] = rec.model_name
-            elif rec.model_id:
-                compact["model"] = rec.model_id
-            if rec.gpu_config:
-                gpu = rec.gpu_config
-                compact["gpu"] = f"{gpu.gpu_count}x {gpu.gpu_type}"
-            if rec.cost_per_month_usd is not None:
-                compact["cost_usd_month"] = rec.cost_per_month_usd
-            if rec.meets_slo:
-                compact["meets_slo"] = True
-            if rec.scores:
-                compact["score"] = rec.scores.balanced_score
-            if rec.reasoning:
-                compact["reasoning"] = rec.reasoning
-            recommendations.append(compact)
+        # Format recommendations as 3 named categories
+        recommendations: dict[str, Any] = {}
+        for key, rec in [
+            ("top_performance", result.top_performance),
+            ("top_cost", result.top_cost),
+            ("top_balanced", result.top_balanced),
+        ]:
+            if rec is not None:
+                recommendations[key] = _format_recommendation(rec, slot=key)
 
         response: dict[str, Any] = {
             "specification": result.specification,
