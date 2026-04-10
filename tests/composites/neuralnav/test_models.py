@@ -1,5 +1,8 @@
 """Tests for NeuralNav composite models."""
 
+import pytest
+from pydantic import ValidationError
+
 from rhoai_mcp.composites.neuralnav.models import (
     DeploymentConfigResult,
     DeploymentIntent,
@@ -38,6 +41,51 @@ class TestDeploymentIntent:
         )
         assert intent.preferred_gpu_types == ["H100", "A100-80"]
         assert intent.accuracy_priority == "high"
+
+    def test_invalid_use_case_rejected(self) -> None:
+        """Invalid use_case values are rejected by Pydantic validation."""
+        with pytest.raises(ValidationError, match="use_case"):
+            DeploymentIntent(use_case="summarization", user_count=1000)
+
+    def test_invalid_use_case_text_summarization_rejected(self) -> None:
+        """LLM-hallucinated 'text_summarization' is rejected."""
+        with pytest.raises(ValidationError, match="use_case"):
+            DeploymentIntent(use_case="text_summarization", user_count=1000)
+
+    def test_invalid_experience_class_rejected(self) -> None:
+        """Invalid experience_class values are rejected."""
+        with pytest.raises(ValidationError, match="experience_class"):
+            DeploymentIntent(
+                use_case="chatbot_conversational",
+                user_count=1000,
+                experience_class="realtime",
+            )
+
+    def test_invalid_priority_rejected(self) -> None:
+        """Invalid priority values are rejected."""
+        with pytest.raises(ValidationError, match="accuracy_priority"):
+            DeploymentIntent(
+                use_case="chatbot_conversational",
+                user_count=1000,
+                accuracy_priority="critical",
+            )
+
+    def test_all_valid_use_cases_accepted(self) -> None:
+        """All nine valid use_case values are accepted."""
+        valid_use_cases = [
+            "chatbot_conversational",
+            "code_completion",
+            "code_generation_detailed",
+            "translation",
+            "content_generation",
+            "summarization_short",
+            "document_analysis_rag",
+            "long_document_summarization",
+            "research_legal_analysis",
+        ]
+        for uc in valid_use_cases:
+            intent = DeploymentIntent(use_case=uc, user_count=100)
+            assert intent.use_case == uc
 
 
 class TestModelRecommendation:
