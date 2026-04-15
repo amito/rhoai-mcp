@@ -128,8 +128,8 @@ class RHOAIServer:
 
         raw_perms = self._plugin_manager.collect_tool_permissions()
         if not raw_perms:
-            logger.warning("get_allowed_tools: no permission mappings, allowing all tools")
-            return None
+            logger.warning("get_allowed_tools: no permission mappings, all tools ungoverned")
+            return set(), set()
 
         # Convert to ToolPermission objects
         tool_perms: dict[str, list[ToolPermission]] = {}
