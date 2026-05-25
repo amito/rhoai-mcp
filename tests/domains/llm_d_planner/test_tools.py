@@ -86,6 +86,42 @@ SAMPLE_EXPECTED_RPS = {
     "peak_rps": 20.0,
 }
 
+SAMPLE_RECOMMENDATION_RAW = {
+    "model_id": "meta-llama/Llama-3.1-70B-Instruct",
+    "model_name": "Llama 3.1 70B",
+    "gpu_config": {"gpu_type": "NVIDIA-H100", "gpu_count": 2, "tensor_parallel": 2, "replicas": 1},
+    "predicted_ttft_p95_ms": 140,
+    "predicted_itl_p95_ms": 50,
+    "predicted_e2e_p95_ms": 1200,
+    "predicted_throughput_qps": 100.0,
+    "cost_per_hour_usd": 3.98,
+    "cost_per_month_usd": 2872.32,
+    "meets_slo": True,
+    "reasoning": "Selected Llama 3.1 70B for chatbot use case",
+    "scores": {
+        "accuracy_score": 78, "price_score": 65, "latency_score": 95,
+        "complexity_score": 90, "balanced_score": 75.3, "slo_status": "compliant",
+    },
+}
+
+SAMPLE_RANKED_RESPONSE = {
+    "balanced": [SAMPLE_RECOMMENDATION_RAW],
+    "lowest_cost": [SAMPLE_RECOMMENDATION_RAW],
+    "lowest_latency": [SAMPLE_RECOMMENDATION_RAW],
+    "total_configs_evaluated": 2847,
+    "configs_after_filters": 542,
+}
+
+SAMPLE_SPEC_DATA = {
+    "specification": {
+        "use_case": "chatbot_conversational",
+        "user_count": 1000,
+        "slo_targets": {"ttft_ms": 150, "itl_ms": 65, "e2e_ms": 2000},
+        "traffic_profile": {"prompt_tokens": 512, "output_tokens": 256, "expected_qps": 10.0},
+        "preferred_gpu_types": [],
+    },
+}
+
 
 class TestExtractIntentTool:
     """Tests for extract_intent tool."""
@@ -258,3 +294,71 @@ class TestPrepareModelTechSpecs:
 
         assert "error" in result
         assert "Wrong workflow order" in result["error"]
+
+
+class TestGetRecommendedModels:
+    """Tests for get_recommended_models tool."""
+
+    def test_tool_registration(self) -> None:
+        """get_recommended_models tool is registered."""
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        assert "get_recommended_models" in mock_mcp._registered_tools
+
+    @patch("rhoai_mcp.domains.llm_d_planner.tools.PlannerClient")
+    def test_successful_recommendations(self, mock_client_class: MagicMock) -> None:
+        """Returns recommendations from specification."""
+        mock_client_class.return_value.get_recommendations.return_value = SAMPLE_RANKED_RESPONSE
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        get_recs = mock_mcp._registered_tools["get_recommended_models"]
+
+        token = sign_step("specs_prepared", SAMPLE_SPEC_DATA)
+        result = get_recs(workflow_token=token)
+
+        assert "error" not in result
+        assert "recommendations" in result
+        assert "specification" in result
+        recs = result["recommendations"]
+        assert "top_balanced" in recs
+        assert recs["top_balanced"]["model"] == "Llama 3.1 70B"
+        assert "workflow_token" in result
+        data = verify_step(result["workflow_token"], "models_recommended")
+        assert "error" not in data
+
+    @patch("rhoai_mcp.domains.llm_d_planner.tools.PlannerClient")
+    def test_with_optimization_profile(self, mock_client_class: MagicMock) -> None:
+        """Optimization profile is resolved to weights."""
+        mock_client_class.return_value.get_recommendations.return_value = SAMPLE_RANKED_RESPONSE
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        get_recs = mock_mcp._registered_tools["get_recommended_models"]
+
+        token = sign_step("specs_prepared", SAMPLE_SPEC_DATA)
+        result = get_recs(workflow_token=token, optimization_profile="optimize_cost")
+
+        assert "error" not in result
+        call_kwargs = mock_client_class.return_value.get_recommendations.call_args.kwargs
+        assert call_kwargs["weights"] == {"accuracy": 2, "price": 8, "latency": 1, "complexity": 1}
+
+    def test_missing_workflow_token(self) -> None:
+        """Missing workflow_token returns error."""
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        get_recs = mock_mcp._registered_tools["get_recommended_models"]
+
+        result = get_recs(workflow_token="")
+
+        assert "error" in result
+
+    def test_invalid_optimization_profile(self) -> None:
+        """Invalid optimization profile returns error."""
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        get_recs = mock_mcp._registered_tools["get_recommended_models"]
+
+        token = sign_step("specs_prepared", SAMPLE_SPEC_DATA)
+        result = get_recs(workflow_token=token, optimization_profile="invalid")
+
+        assert "error" in result
+        assert "optimization_profile" in result["error"]

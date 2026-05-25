@@ -62,6 +62,49 @@ def _handle_planner_error(
     )
 
 
+VALID_PERCENTILES = {"p50", "p75", "p90", "p95", "p99"}
+
+VALID_CATEGORIES = {"balanced", "cost", "performance"}
+
+OPTIMIZATION_PROFILES: dict[str, dict[str, int]] = {
+    "optimize_cost": {"accuracy": 2, "price": 8, "latency": 1, "complexity": 1},
+    "optimize_latency": {"accuracy": 2, "price": 2, "latency": 8, "complexity": 1},
+    "optimize_accuracy": {"accuracy": 8, "price": 2, "latency": 1, "complexity": 1},
+    "balanced": {"accuracy": 4, "price": 4, "latency": 4, "complexity": 1},
+}
+
+
+def _format_recommendation(rec: Any) -> dict[str, Any]:
+    """Format a single recommendation for tool output."""
+    from rhoai_mcp.domains.llm_d_planner.client import _parse_recommendation
+
+    parsed = _parse_recommendation(rec) if isinstance(rec, dict) else rec
+    result: dict[str, Any] = {
+        "model": parsed.model_name or parsed.model_id or "unknown",
+    }
+    if parsed.gpu_config:
+        gpu = parsed.gpu_config
+        if isinstance(gpu, dict):
+            result["gpu"] = f"{gpu.get('gpu_count', '?')}x {gpu.get('gpu_type', '?')}"
+        else:
+            result["gpu"] = f"{gpu.gpu_count}x {gpu.gpu_type}"
+    if parsed.predicted_ttft_p95_ms is not None:
+        result["ttft_p95_ms"] = parsed.predicted_ttft_p95_ms
+    if parsed.predicted_itl_p95_ms is not None:
+        result["itl_p95_ms"] = parsed.predicted_itl_p95_ms
+    if parsed.predicted_e2e_p95_ms is not None:
+        result["e2e_p95_ms"] = parsed.predicted_e2e_p95_ms
+    if parsed.cost_per_month_usd is not None:
+        result["cost_per_month_usd"] = parsed.cost_per_month_usd
+    if parsed.meets_slo is not None:
+        result["meets_slo"] = parsed.meets_slo
+    if parsed.scores and parsed.scores.balanced_score is not None:
+        result["score"] = parsed.scores.balanced_score
+    if parsed.reasoning:
+        result["reasoning"] = parsed.reasoning
+    return result
+
+
 def register_tools(mcp: FastMCP, server: RHOAIServer) -> None:
     """Register llm-d-planner tools with the MCP server."""
 
@@ -160,3 +203,100 @@ def register_tools(mcp: FastMCP, server: RHOAIServer) -> None:
             return _handle_planner_error(e, server)
         except KeyError as ke:
             return _error_result(f"Planner response missing expected field: {ke}")
+
+    @mcp.tool()
+    @workflow_step(requires="specs_prepared", produces="models_recommended")
+    def get_recommended_models(
+        workflow_token: str,  # noqa: ARG001
+        optimization_profile: str | None = None,
+        min_accuracy: int | None = None,
+        max_cost_per_month: float | None = None,
+        percentile: str | None = None,
+    ) -> dict[str, Any]:
+        """Get ranked model recommendations from the technical specification.
+
+        Uses the specification built in the previous step. Optional parameters
+        adjust ranking criteria. Returns top recommendations in 3 categories
+        (performance, cost, balanced) and a workflow_token for get_deployment_config.
+        """
+        prev: dict[str, Any] = workflow_token  # type: ignore[assignment]
+        spec = prev["specification"]
+
+        # Validate optimization profile
+        weights = None
+        if optimization_profile:
+            if optimization_profile not in OPTIMIZATION_PROFILES:
+                return _error_result(
+                    f"Invalid optimization_profile '{optimization_profile}'. "
+                    f"Valid: {', '.join(sorted(OPTIMIZATION_PROFILES))}"
+                )
+            weights = OPTIMIZATION_PROFILES[optimization_profile]
+
+        # Validate constraints
+        if min_accuracy is not None and not (0 <= min_accuracy <= 100):
+            return _error_result("min_accuracy must be between 0 and 100")
+        if max_cost_per_month is not None and max_cost_per_month < 0:
+            return _error_result("max_cost_per_month must be non-negative")
+        if percentile and percentile not in VALID_PERCENTILES:
+            return _error_result(
+                f"Invalid percentile '{percentile}'. Valid: {', '.join(sorted(VALID_PERCENTILES))}"
+            )
+
+        try:
+            client = PlannerClient(
+                server.config.planner_url,
+                timeout=float(server.config.planner_timeout),
+            )
+
+            slo = spec["slo_targets"]
+            traffic = spec["traffic_profile"]
+
+            ranked = client.get_recommendations(
+                use_case=spec["use_case"],
+                user_count=spec["user_count"],
+                prompt_tokens=traffic["prompt_tokens"],
+                output_tokens=traffic["output_tokens"],
+                expected_qps=traffic["expected_qps"],
+                ttft_target_ms=slo["ttft_ms"],
+                itl_target_ms=slo["itl_ms"],
+                e2e_target_ms=slo["e2e_ms"],
+                preferred_gpu_types=spec.get("preferred_gpu_types") or None,
+                min_accuracy=min_accuracy,
+                max_cost=max_cost_per_month,
+                weights=weights,
+                percentile=percentile,
+            )
+
+            # Extract top recommendation from each category
+            balanced_list = ranked.get("balanced", [])
+            cost_list = ranked.get("lowest_cost", [])
+            latency_list = ranked.get("lowest_latency", [])
+
+            recommendations: dict[str, Any] = {}
+            if balanced_list:
+                recommendations["top_balanced"] = _format_recommendation(balanced_list[0])
+            if cost_list:
+                recommendations["top_cost"] = _format_recommendation(cost_list[0])
+            if latency_list:
+                recommendations["top_performance"] = _format_recommendation(latency_list[0])
+
+            result: dict[str, Any] = {
+                "specification": spec,
+                "recommendations": recommendations,
+            }
+
+            if not recommendations:
+                result["message"] = (
+                    f"No models matched your constraints "
+                    f"({ranked.get('total_configs_evaluated', 0)} evaluated, "
+                    f"{ranked.get('configs_after_filters', 0)} after filters). "
+                    f"Try relaxing SLO targets or cost limits."
+                )
+
+            # Store the raw ranked response for get_deployment_config
+            result["_ranked_response"] = ranked
+
+            return result
+
+        except (PlannerConnectionError, PlannerAPIError) as e:
+            return _handle_planner_error(e, server)
