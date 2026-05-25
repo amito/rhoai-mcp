@@ -300,3 +300,77 @@ def register_tools(mcp: FastMCP, server: RHOAIServer) -> None:
 
         except (PlannerConnectionError, PlannerAPIError) as e:
             return _handle_planner_error(e, server)
+
+    @mcp.tool()
+    @workflow_step(requires="models_recommended")
+    def get_deployment_config(
+        workflow_token: str,  # noqa: ARG001
+        category: str,
+        namespace: str = "default",
+    ) -> dict[str, Any]:
+        """Generate Kubernetes deployment YAML for a recommended model.
+
+        Uses the recommendations from the previous step. Picks the top model
+        from the specified category and generates deployment configurations.
+
+        This is the terminal step — no workflow_token in the output.
+        """
+        prev: dict[str, Any] = workflow_token  # type: ignore[assignment]
+
+        # Validate category
+        if category not in VALID_CATEGORIES:
+            return _error_result(
+                f"Invalid category '{category}'. Valid: {', '.join(sorted(VALID_CATEGORIES))}"
+            )
+
+        # Validate namespace
+        if not namespace or not namespace.strip():
+            return _error_result("namespace must be non-empty")
+
+        from rhoai_mcp.domains.llm_d_planner.client import CATEGORY_MAP
+
+        # Get the raw ranked response from the token data
+        ranked = prev.get("_ranked_response", {})
+        category_key = CATEGORY_MAP.get(category)
+        if not category_key:
+            return _error_result(f"Invalid category '{category}'")
+
+        category_list = ranked.get(category_key, [])
+        if not category_list:
+            return _error_result(
+                f"No recommendation found for category '{category}'. "
+                f"Try a different category or relax constraints."
+            )
+
+        recommendation = category_list[0]
+        model_name = recommendation.get("model_name") or recommendation.get("model_id")
+
+        try:
+            client = PlannerClient(
+                server.config.planner_url,
+                timeout=float(server.config.planner_timeout),
+            )
+
+            deploy_result = client.deploy(recommendation, namespace=namespace)
+
+            if deploy_result.get("success") is not True:
+                return _error_result(
+                    deploy_result.get("message", "Deployment config generation failed"),
+                )
+
+            files = deploy_result.get("files", {})
+            if not files:
+                return _error_result("No config files were generated")
+
+            result: dict[str, Any] = {
+                "deployment_id": deploy_result["deployment_id"],
+                "namespace": deploy_result["namespace"],
+                "configs": files,
+            }
+            if model_name:
+                result["model"] = model_name
+
+            return result
+
+        except (PlannerConnectionError, PlannerAPIError) as e:
+            return _handle_planner_error(e, server)

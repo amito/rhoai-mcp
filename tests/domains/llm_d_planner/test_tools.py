@@ -122,6 +122,28 @@ SAMPLE_SPEC_DATA = {
     },
 }
 
+SAMPLE_DEPLOY_RESPONSE = {
+    "deployment_id": "chatbot-llama-3-1-70b-20260322143022",
+    "namespace": "default",
+    "files": {
+        "inferenceservice": "apiVersion: serving.kserve.io/v1beta1\nkind: InferenceService",
+        "autoscaling": "apiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler",
+        "servicemonitor": "apiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor",
+    },
+    "success": True,
+    "message": "Deployment files generated successfully",
+}
+
+SAMPLE_MODELS_RECOMMENDED_DATA = {
+    "specification": SAMPLE_SPEC_DATA["specification"],
+    "recommendations": {
+        "top_balanced": {"model": "Llama 3.1 70B", "gpu": "2x NVIDIA-H100"},
+        "top_cost": {"model": "Llama 3.1 70B", "gpu": "2x NVIDIA-H100"},
+        "top_performance": {"model": "Llama 3.1 70B", "gpu": "2x NVIDIA-H100"},
+    },
+    "_ranked_response": SAMPLE_RANKED_RESPONSE,
+}
+
 
 class TestExtractIntentTool:
     """Tests for extract_intent tool."""
@@ -362,3 +384,72 @@ class TestGetRecommendedModels:
 
         assert "error" in result
         assert "optimization_profile" in result["error"]
+
+
+class TestGetDeploymentConfig:
+    """Tests for get_deployment_config tool."""
+
+    def test_tool_registration(self) -> None:
+        """get_deployment_config tool is registered."""
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        assert "get_deployment_config" in mock_mcp._registered_tools
+
+    @patch("rhoai_mcp.domains.llm_d_planner.tools.PlannerClient")
+    def test_successful_deployment_config(self, mock_client_class: MagicMock) -> None:
+        """Generates deployment configs from recommendations."""
+        # Mock the deploy response to return ml-prod namespace
+        deploy_response = SAMPLE_DEPLOY_RESPONSE.copy()
+        deploy_response["namespace"] = "ml-prod"
+        mock_client_class.return_value.deploy.return_value = deploy_response
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        get_config = mock_mcp._registered_tools["get_deployment_config"]
+
+        token = sign_step("models_recommended", SAMPLE_MODELS_RECOMMENDED_DATA)
+        result = get_config(workflow_token=token, category="balanced", namespace="ml-prod")
+
+        assert "error" not in result
+        assert result["deployment_id"] == "chatbot-llama-3-1-70b-20260322143022"
+        assert result["namespace"] == "ml-prod"
+        assert "inferenceservice" in result["configs"]
+        # Terminal step — no workflow_token in output
+        assert "workflow_token" not in result
+
+    @patch("rhoai_mcp.domains.llm_d_planner.tools.PlannerClient")
+    def test_invalid_category(self, mock_client_class: MagicMock) -> None:
+        """Invalid category returns error."""
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        get_config = mock_mcp._registered_tools["get_deployment_config"]
+
+        token = sign_step("models_recommended", SAMPLE_MODELS_RECOMMENDED_DATA)
+        result = get_config(workflow_token=token, category="fastest", namespace="default")
+
+        assert "error" in result
+        assert "category" in result["error"]
+        mock_client_class.assert_not_called()
+
+    def test_missing_workflow_token(self) -> None:
+        """Missing workflow_token returns error."""
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        get_config = mock_mcp._registered_tools["get_deployment_config"]
+
+        result = get_config(workflow_token="", category="balanced", namespace="default")
+
+        assert "error" in result
+
+    @patch("rhoai_mcp.domains.llm_d_planner.tools.PlannerClient")
+    def test_empty_namespace(self, mock_client_class: MagicMock) -> None:
+        """Empty namespace returns error."""
+        mock_mcp = _make_mock_mcp()
+        register_tools(mock_mcp, _make_mock_server())
+        get_config = mock_mcp._registered_tools["get_deployment_config"]
+
+        token = sign_step("models_recommended", SAMPLE_MODELS_RECOMMENDED_DATA)
+        result = get_config(workflow_token=token, category="balanced", namespace="  ")
+
+        assert "error" in result
+        assert "namespace" in result["error"]
+        mock_client_class.assert_not_called()
