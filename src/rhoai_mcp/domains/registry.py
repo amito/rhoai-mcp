@@ -423,6 +423,10 @@ class LlmDPlannerPlugin(BasePlugin):
         register_tools(mcp, server)
 
     @hookimpl
+    def rhoai_get_tool_permissions(self) -> dict[str, list[dict[str, str]]]:
+        return {}  # Uses external REST API, not K8s RBAC
+
+    @hookimpl
     def rhoai_health_check(self, server: RHOAIServer) -> tuple[bool, str]:
         from rhoai_mcp.domains.llm_d_planner.client import PlannerClient
 
