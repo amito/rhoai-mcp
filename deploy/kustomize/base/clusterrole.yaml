@@ -12,6 +12,7 @@ rules:
       - pods
       - pods/log
       - services
+      - serviceaccounts
       - events
       - nodes
     verbs: ["get", "list", "watch"]
